@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Dict
 
 import pandas as pd
+from retry import retry
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.common.by import By
@@ -11,8 +12,13 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
+from bhs.config import constants, logger_factory
+from bhs.services import ticker_service
+
 profile_path_str = "C:\\Users\\Chris\\AppData\\Local\\Mozilla\\Firefox\\Profiles\\53mnyz5y.selenium_blogger_high_score"
 fp = webdriver.FirefoxProfile(profile_path_str)
+
+logger = logger_factory.create_instance(__name__)
 
 
 class AnalystTip:
@@ -58,8 +64,11 @@ def get_analyst_tips(driver: WebDriver, ticker: str):
             xpath_name = './/span[@itemprop="name"]'
             at.analyst_name = ancestor.find_element_by_xpath(xpath_name).text
 
-            xpath_rank = './/span[@class="client-NewComponents-SmartCombos-rank-styles__rankFilled"]/span'
-            at.rank_raw = ancestor.find_element_by_xpath(xpath_rank).get_attribute('innerHTML')
+            try:
+                xpath_rank = './/span[@class="client-NewComponents-SmartCombos-rank-styles__rankFilled"]/span'
+                at.rank_raw = ancestor.find_element_by_xpath(xpath_rank).get_attribute('innerHTML')
+            except NoSuchElementException as nsee:
+                at.rank_raw = None
 
             xpath_rate = './/p[@class="client-components-ReactTableWrapper-cells__rate"]'
             at.rating = ancestor.find_element_by_xpath(xpath_rate).get_attribute('innerHTML')
@@ -90,22 +99,32 @@ def get_analyst_tips(driver: WebDriver, ticker: str):
     return all_analysts
 
 
+@retry(tries=-1, delay=15, max_delay=60, backoff=1, jitter=1, logger=logger)
+def call_tip_ranks(driver, url: str, ticker: str):
+    driver.get(url)
+
+    if driver.title.startswith("Page Not Found"):
+        return None
+
+    more_to_show = click_show_more(driver)
+    while more_to_show:
+        more_to_show = click_show_more(driver)
+        time.sleep(1)
+
+    return get_analyst_tips(driver, ticker=ticker)
+
+
 def get_stock_tips(tickers: List[str], driver: WebDriver) -> Dict[str, List[AnalystTip]]:
     stock_tips = dict()
     for t in tickers:
+        print(f"Getting ticker {t}")
         url = f"https://www.tipranks.com/stocks/{t}/forecast"
-        driver.get(url)
 
-        if driver.title.startswith("Page Not Found"):
+        tips = call_tip_ranks(driver=driver, url=url, ticker=t)
+        if tips is None:
             continue
-
-        more_to_show = click_show_more(driver)
-        while more_to_show:
-            more_to_show = click_show_more(driver)
-            time.sleep(1)
-
-        ticker_tips = get_analyst_tips(driver, ticker=t)
-        stock_tips[t] = ticker_tips
+        else:
+            stock_tips[t] = tips
 
     return stock_tips
 
@@ -130,8 +149,10 @@ def login(driver: WebDriver) -> WebElement:
     driver.get(url)
 
     # TODO: 2020-12-02: chris.flesche: Move to config
-    username = "fletch22.tester.1@gmail.com"
-    pwd = "U71Er%rRh53*"
+    # username = "fletch22.tester.1@gmail.com"
+    # pwd = "U71Er%rRh53*"
+    username = constants.tipranks_username
+    pwd = constants.tipranks_password
 
     login_tb = '//input[@name="email" and @type="email"]'
     condition = EC.presence_of_element_located((By.XPATH, login_tb))
@@ -149,22 +170,58 @@ def login(driver: WebDriver) -> WebElement:
     sign_in_elem.click()
 
 
-def scrap_tipranks(tickers: List[str], output_path: Path):
+def scrape_tipranks(tickers: List[str], output_path: Path):
     driver = get_driver()
 
     login(driver=driver)
     time.sleep(1)
 
-    stock_tips = get_stock_tips(driver=driver, tickers=tickers)
+    stock_tips = None
+    try:
+        stock_tips = get_stock_tips(driver=driver, tickers=tickers)
+    except Exception as e:
+        print(e)
 
-    all_tips = []
-    for ticker, tips in stock_tips.items():
-        print(f"\nTicker: {ticker}\n")
+    if stock_tips is not None:
+        all_tips = []
+        for ticker, tips in stock_tips.items():
+            print(f"\nTicker: {ticker}\n")
 
-        for at in tips:
-            all_tips.append(at.__dict__)
+            for at in tips:
+                all_tips.append(at.__dict__)
 
-    df = pd.DataFrame(all_tips)
-    df.to_parquet(output_path)
+        df = pd.DataFrame(all_tips)
+        df.to_parquet(output_path)
 
     return stock_tips
+
+
+def get_stock_data_for_ranks(df: pd.DataFrame, num_days_in_future: int = 1):
+    ttd = extract_tipranks_ticker_dates(df)
+    return ticker_service.get_ticker_on_dates(ttd, num_days_in_future=num_days_in_future)
+
+
+def extract_tipranks_ticker_dates(df: pd.DataFrame):
+    df_g_stocks = df.groupby(by=["ticker"])
+
+    stock_days = {}
+    for group_name, df_group in df_g_stocks:
+        ticker = group_name
+        dates = df_group["dt_rating"].values.tolist()
+        stock_days[ticker] = dates
+
+    return stock_days
+
+
+if __name__ == '__main__':
+    df = ticker_service.get_fat_tickers()
+    tickers = df["ticker"].to_list()
+    file_path = constants.ANALYST_STOCK_PICKS_FROM_TICKER_PATH
+
+    tickers = sorted(tickers)
+
+    # Act
+    stock_tips = scrape_tipranks(tickers=tickers, output_path=file_path)
+
+    for ticker, tips in stock_tips.items():
+        print(f"Ticker: {ticker}")

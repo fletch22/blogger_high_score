@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta
 
+import pandas as pd
 import pytz
 from pyspark.sql.functions import udf
 from pyspark.sql.types import StringType
+
+from bhs.config import constants
 
 TZ_AMERICA_NEW_YORK = 'America/New_York'
 
@@ -11,6 +14,7 @@ US_DATE_FORMAT = '%m/%d/%Y'
 STANDARD_DATE_WITH_SECONDS_FORMAT = '%Y-%m-%d_%H-%M-%S'
 WTD_DATE_WITH_SECONDS_FORMAT = '%Y-%m-%d %H:%M:%S'
 TWITTER_FORMAT = '%Y%m%D%H%M'
+TIPRANKS_FORMAT = "%a %b %d %Y"
 
 TWITTER_LONG_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
@@ -92,17 +96,6 @@ def convert_timestamp_to_nyc_date_str(utc_timestamp):
     return get_standard_ymd_format(dt_nyc)
 
 
-def is_stock_market_closed(dt: datetime):
-    is_closed = False
-    if dt.weekday() > 5:
-        is_closed = True
-    else:
-        dt_str = get_standard_ymd_format(dt)
-        if dt_str in stock_market_holidays:
-            is_closed = True
-    return is_closed
-
-
 def get_nasdaq_trading_days_from(dt: datetime, num_days: int):
     time_dir = -1
     if num_days > 0:
@@ -113,3 +106,47 @@ def get_nasdaq_trading_days_from(dt: datetime, num_days: int):
             if not is_stock_market_closed(dt):
                 break
     return dt
+
+
+def parse_tipranks_dt(date_str: str):
+    return datetime.strptime(date_str, TIPRANKS_FORMAT)
+
+
+def get_next_market_date(date_str: str, is_reverse: bool = False) -> str:
+    dt = parse_std_datestring(date_str)
+    return get_standard_ymd_format(find_next_market_open_day(dt, is_reverse=is_reverse))
+
+
+def find_next_market_open_day(dt: datetime, is_reverse: bool = False):
+    day = -1 if is_reverse else 1
+    while True:
+        dt = dt + timedelta(days=day)
+        is_closed, reached_end_of_data = is_stock_market_closed(dt)
+        if reached_end_of_data:
+            raise Exception("While finding the next market open day, the system reached the end of the available data.")
+        if not is_closed:
+            break
+    return dt
+
+
+def is_stock_market_closed(dt: datetime):
+    date_str = get_standard_ymd_format(dt)
+    max_date = sorted(get_market_holidays())[-1]
+    reached_end_of_data = False
+    if date_str > max_date:
+        reached_end_of_data = True
+    is_closed = False
+    if dt.weekday() > 4:
+        is_closed = True
+    else:
+        if date_str in get_market_holidays():
+            is_closed = True
+    return is_closed, reached_end_of_data
+
+
+def get_market_holidays() -> str:
+    global stock_market_holidays
+    if stock_market_holidays is None:
+        stock_market_holidays = pd.read_csv(constants.US_MARKET_HOLIDAYS_PATH)["date"].to_list()
+
+    return stock_market_holidays

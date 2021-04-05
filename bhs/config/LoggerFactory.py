@@ -3,7 +3,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from ams.config import constants
+from bhs.config import constants
 
 
 class LoggerFactory():
@@ -19,13 +19,13 @@ class LoggerFactory():
 
         print(f'Will use logging path: {constants.LOGGING_PATH}')
 
-        log_path = Path(constants.LOGGING_PATH, 'alpha_media_signal.log')
+        log_path = Path(constants.LOGGING_PATH, 'blogger_high_score.log')
 
         self.rot_handler = RotatingFileHandler(str(log_path), maxBytes=200000000, backupCount=10)
         self.rot_handler.setFormatter(self.formatter)
         self.rot_handler.setLevel(logging.INFO)
 
-    def create_logger(self, name: str):
+    def create_instance(self, name: str):
         logger = logging.getLogger(name)
         logger.addHandler(self.handler_stream)
         logger.addHandler(self.rot_handler)

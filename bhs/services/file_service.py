@@ -10,7 +10,7 @@ from zipfile import ZipFile
 
 from bhs.config import logger_factory, constants
 
-logger = logger_factory.create(__name__)
+logger = logger_factory.create_instance(__name__)
 
 
 def is_empty(the_path: Path):

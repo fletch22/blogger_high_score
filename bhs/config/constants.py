@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-from bhs.config.Credentials import Credentials
+from bhs.config.TwitterCredentials import TwitterCredentials
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
@@ -29,21 +29,30 @@ ensure_dir(LOGGING_PATH)
 if os.name == 'nt':
     RESOURCES_PATH = Path(DATA_PATH, 'credentials')
     TWITTER_CREDS_PATH = Path(RESOURCES_PATH, "search_tweets_creds.yaml")
+    TIPRANKS_CREDS_PATH = Path(RESOURCES_PATH, "tipranks_creds.yaml")
 
     with open(TWITTER_CREDS_PATH) as file:
         # The FullLoader parameter handles the conversion from YAML
         # scalar values to Python the dictionary format
-        creds_yaml = yaml.load(file, Loader=yaml.FullLoader)
+        twitter_creds = yaml.load(file, Loader=yaml.FullLoader)
 
     fletch22_key = 'search_tweets_fullarchive_development'
     standard_search_key = 'standard_search_tweets'
     rogd_key = "standard_search_tweets_rogd"
 
-    FLETCH22_CREDS = Credentials(creds_yaml, fletch22_key)
-    STANDARD_CREDS = Credentials(creds_yaml, standard_search_key)
-    ROGD_CREDS = Credentials(creds_yaml, standard_search_key)
+    TWITTER_FLETCH22_CREDS = TwitterCredentials(twitter_creds, fletch22_key)
+    TWITTER_STANDARD_CREDS = TwitterCredentials(twitter_creds, standard_search_key)
+    TWITTER_ROGD_CREDS = TwitterCredentials(twitter_creds, standard_search_key)
 
-    CURRENT_CREDS = ROGD_CREDS
+    CURRENT_CREDS = TWITTER_ROGD_CREDS
+
+    with open(TIPRANKS_CREDS_PATH) as file:
+        # The FullLoader parameter handles the conversion from YAML
+        # scalar values to Python the dictionary format
+        tipranks_creds = yaml.load(file, Loader=yaml.FullLoader)
+
+    tipranks_username = tipranks_creds["username"]
+    tipranks_password = tipranks_creds["password"]
 
 TWITTER_OUTPUT_RAW_PATH = Path(DATA_PATH, 'twitter')
 TWITTER_RAW_TWEETS_PREFIX = 'tweets_raw'
@@ -102,5 +111,15 @@ ensure_dir(TWITTER_MODEL_PATH)
 BLOG_HS_OUTPUT = Path(OVERFLOW_DATA_PATH, "blogger_high_score")
 ensure_dir(BLOG_HS_OUTPUT)
 
-ANALYST_STOCK_PICKS_FROM_TICKER_PATH = Path(BLOG_HS_OUTPUT, "picks_from_ticker")
-ensure_dir(ANALYST_STOCK_PICKS_FROM_TICKER_PATH)
+PICKS_FROM_TICKER_PATH = Path(BLOG_HS_OUTPUT, "ticker")
+ensure_dir(PICKS_FROM_TICKER_PATH)
+
+ANALYST_STOCK_PICKS_FROM_TICKER_PATH = Path(PICKS_FROM_TICKER_PATH, "ticker_analyst_picks.parquet")
+
+FAT_TICKERS_PATH = Path(BLOG_HS_OUTPUT, "fat_tickers.parquet")
+
+TIP_RANKS_DATA_DIR = Path(FIN_DATA, 'tip_ranks')
+ensure_dir(TIP_RANKS_DATA_DIR)
+TIP_RANKS_STOCK_DATA_PATH = os.path.join(TIP_RANKS_DATA_DIR, "tip_ranks_stock.parquet")
+
+US_MARKET_HOLIDAYS_PATH = Path(FIN_DATA, "us_market_holidays.csv")

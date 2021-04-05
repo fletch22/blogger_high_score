@@ -5,7 +5,7 @@ API_SECRET_KEY = 'api_secret_key'
 ENDPOINT = 'endpoint'
 
 
-class Credentials:
+class TwitterCredentials:
     def __init__(self, creds_yaml: Dict, cred_yaml_key: str):
         self.default_bearer_token = creds_yaml[cred_yaml_key]['bearer_token']
 
