@@ -69,6 +69,31 @@ def get_fat_tickers():
     return pd.read_parquet(constants.FAT_TICKERS_PATH)
 
 
+def get_equities_in_dates(tickers: List[str], start_dt_str: str, end_dt_str):
+    all_tickers = []
+    for t in tickers:
+        df_t = get_equity_on_start_end(ticker=t, start_dt_str=start_dt_str, end_dt_str=end_dt_str)
+        all_tickers.append(df_t)
+
+    return pd.concat(objs=all_tickers, axis=0)
+
+
+def get_equity_on_start_end(ticker: str, start_dt_str: str, end_dt_str: str, num_days_in_future: int = 1) -> pd.DataFrame:
+    df = get_ticker_eod_data(ticker)
+    df_in_range = None
+    if df is not None:
+        df_in_range = df[(df["date"] >= start_dt_str) & (df["date"] <= end_dt_str)].sort_values(by="date")
+        df_in_range["future_open"] = df_in_range["open"]
+        df_in_range["future_low"] = df_in_range["low"]
+        df_in_range["future_high"] = df_in_range["high"]
+        df_in_range["future_close"] = df_in_range["close"]
+        df_in_range["future_date"] = df_in_range["date"]
+        cols = ["future_open", "future_low", "future_high", "future_close", "future_date"]
+        df_in_range[cols] = df_in_range[cols].shift(-num_days_in_future)
+
+    return df_in_range
+
+
 def get_equity_on_dates(ticker: str, date_strs: List[str],
                         num_days_in_future: int = 1) -> pd.DataFrame:
     df = get_ticker_eod_data(ticker)
@@ -91,7 +116,7 @@ def get_equity_on_dates(ticker: str, date_strs: List[str],
 def get_start_end_dates(date_strs: List[str]):
     date_strs = sorted(date_strs)
     start_date = date_strs[0]
-    end_date = date_strs[len(date_strs) - 1]
+    end_date = date_strs[-1]
 
     dt = date_utils.parse_std_datestring(end_date)
 

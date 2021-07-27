@@ -15,6 +15,7 @@ STANDARD_DATE_WITH_SECONDS_FORMAT = '%Y-%m-%d_%H-%M-%S'
 WTD_DATE_WITH_SECONDS_FORMAT = '%Y-%m-%d %H:%M:%S'
 TWITTER_FORMAT = '%Y%m%D%H%M'
 TIPRANKS_FORMAT = "%a %b %d %Y"
+TIPRANKS_FORMAT_V2 = "%Y-%m-%dT%H:%M:%S.%fZ" # 2021-02-02T06:00:00.000Z
 
 TWITTER_LONG_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
@@ -109,7 +110,7 @@ def get_nasdaq_trading_days_from(dt: datetime, num_days: int):
 
 
 def parse_tipranks_dt(date_str: str):
-    return datetime.strptime(date_str, TIPRANKS_FORMAT)
+    return datetime.strptime(date_str, TIPRANKS_FORMAT_V2)
 
 
 def get_next_market_date(date_str: str, is_reverse: bool = False) -> str:
@@ -150,3 +151,9 @@ def get_market_holidays() -> str:
         stock_market_holidays = pd.read_csv(constants.US_MARKET_HOLIDAYS_PATH)["date"].to_list()
 
     return stock_market_holidays
+
+
+def get_days_between(date_str_1: str, date_str_2: str):
+    dt_1 = parse_std_datestring(date_str_1)
+    dt_2 = parse_std_datestring(date_str_2)
+    return abs((dt_2 - dt_1).days)

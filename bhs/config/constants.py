@@ -123,3 +123,5 @@ ensure_dir(TIP_RANKS_DATA_DIR)
 TIP_RANKS_STOCK_DATA_PATH = os.path.join(TIP_RANKS_DATA_DIR, "tip_ranks_stock.parquet")
 
 US_MARKET_HOLIDAYS_PATH = Path(FIN_DATA, "us_market_holidays.csv")
+
+TIP_RANKS_SCORED_FULL = Path(TIP_RANKS_DATA_DIR, "tip_ranks_scored_full.parquet")

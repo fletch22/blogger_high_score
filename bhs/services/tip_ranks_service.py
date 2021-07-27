@@ -5,7 +5,7 @@ from typing import List, Dict
 import pandas as pd
 from retry import retry
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
@@ -38,72 +38,114 @@ def get_driver():
     return webdriver.Firefox(fp)
 
 
-def get_analyst_tips(driver: WebDriver, ticker: str):
-    x_path = '//img[@class="client-components-ReactTableWrapper-cells__expertImg"]'
+def find_all_data_on_page(driver, ticker) -> List[AnalystTip]:
+    icon_str_xp = './/a[@data-link="expert" and contains(@class, "colorlink")]'
+    condition = EC.presence_of_element_located((By.XPATH, icon_str_xp))
+    _: WebElement = WebDriverWait(driver, 15).until(condition)
 
-    img_elems = driver.find_elements_by_xpath(x_path)
+    row_xp = '//div[contains(@class,"rt-tr-group")]'
+    rows = driver.find_elements_by_xpath(row_xp)
 
-    print(f"Found {len(img_elems)} matching web elements.")
+    logger.info(f"Num elements: {len(rows)}")
 
-    all_analysts = []
-    for ndx, i in enumerate(img_elems):
+    all_at = []
+    for ndx, div_el in enumerate(rows):
+        at = AnalystTip()
+        at.ticker = ticker
 
-        parent = i.find_element_by_xpath("..")
+        xpath_name = './/a[@data-link="expert" and contains(@class, "colorlink")]'
+        anchor_elems = div_el.find_elements_by_xpath(xpath_name)
+        if len(anchor_elems) == 0:
+            logger.info("Getting unknown analyst span...")
+            xpath_name = './/span[contains(text(), "Unknown Analyst")]'
+            unknown_els = div_el.find_elements_by_xpath(xpath_name)
+            if len(unknown_els) == 0:
+                logger.info("Getting named unrated analyst span...")
+                xpath_name = './/span[@class="fontWeightsemibold"]'
+                analyst_els = div_el.find_elements_by_xpath(xpath_name)
+                if len(analyst_els) == 0:
+                    continue
+                at.analyst_name = analyst_els[0].text
+                at.rank_raw = "unknown"
+            else:
+                at.analyst_name = "unknown"
+                at.rank_raw = "unknown"
+        else:
+            a_el = anchor_elems[0]
+            at.analyst_name = a_el.get_attribute("title")
+            at.analyst_rel_url = a_el.get_attribute("href")
 
-        if parent.tag_name == "a":
-            at = AnalystTip()
-            at.ticker = ticker
-            at.analyst_rel_url = parent.get_attribute("href")
+            span = div_el.find_element_by_xpath('.//div[contains(@class, "colorgray-1")]/span')
 
-            ancestor = parent.find_element_by_xpath("..") \
-                .find_element_by_xpath("..") \
-                .find_element_by_xpath("..") \
-                .find_element_by_xpath("..") \
-                .find_element_by_xpath("..")
+            width = span.get_attribute('style').split("width:")[1].split("%")[0]
+            at.rank_raw = f"{(float(width) / 100) * 5:.2}"
 
-            xpath_name = './/span[@itemprop="name"]'
-            at.analyst_name = ancestor.find_element_by_xpath(xpath_name).text
+        logger.info("Getting cells span...")
+        org_xpath = './/div[contains(@class, "rt-tr")]/div[contains(@class, "rt-td") and contains(@class, "rt-left")]/span[@class="truncate"]'
+        org_els = div_el.find_elements_by_xpath(org_xpath)
+        if len(org_els) == 0:
+            at.org_name = "not found"
+        else:
+            at.org_name = org_els[0].get_attribute("title")
 
-            try:
-                xpath_rank = './/span[@class="client-NewComponents-SmartCombos-rank-styles__rankFilled"]/span'
-                at.rank_raw = ancestor.find_element_by_xpath(xpath_rank).get_attribute('innerHTML')
-            except NoSuchElementException as nsee:
-                at.rank_raw = None
+        analyst_cells_xpath = './/div[contains(@class, "rt-tr")]/div[contains(@class, "rt-td") and contains(@class, "rt-left")]'
+        analyst_cells = div_el.find_elements_by_xpath(analyst_cells_xpath)
 
-            xpath_rate = './/p[@class="client-components-ReactTableWrapper-cells__rate"]'
-            at.rating = ancestor.find_element_by_xpath(xpath_rate).get_attribute('innerHTML')
+        if len(analyst_cells) <= 2:
+            continue
 
-            try:
-                xpath_tar_price = './/span[@class="client-components-MoneyAnimation-styles__moneyCell"]'
-                at.target_price = ancestor.find_element_by_xpath(xpath_tar_price).get_attribute(
-                    'innerHTML')
-            except NoSuchElementException as nsee:
-                at.target_price = None
+        tar_price_el = analyst_cells[2]
+        logger.info("Getting target_price span...")
+        span_els = tar_price_el.find_elements_by_xpath('.//span')
 
-            try:
-                xpath_tr_rating_roi = './/div[contains(@class, "client-components-ReactTableWrapper-cells__PriceCompareActionCell")]/p/strong'
-                at.tr_rating_roi = ancestor.find_element_by_xpath(
-                    xpath_tr_rating_roi).get_attribute('innerHTML')
-            except NoSuchElementException as nsee:
-                at.tr_rating_roi = None
+        if len(span_els) == 0:
+            at.target_price = "unknown"
+        else:
+            at.target_price = span_els[0].get_attribute("data-value")
 
-            xpath_te = './/span[@class="client-components-ReactTableWrapper-styles__textEllipsis"]/span'
-            elems = ancestor.find_elements_by_xpath(xpath_te)
+        rating_el = analyst_cells[3]
+        logger.info("Getting rating span...")
+        span_els = rating_el.find_elements_by_xpath('.//span[contains(@class, "textTransformuppercase")]')
+        if len(span_els) == 0:
+            at.rating = "unknown"
+        else:
+            at.rating = span_els[0].text
 
-            at.org_name = elems[0].get_attribute('innerHTML')
-            at.rating_initiating = elems[1].get_attribute('innerHTML')
-            at.dt_rating = elems[2].find_element_by_xpath("..").get_attribute('title')
+        tr_rating_roi_el = analyst_cells[4]
+        span_els = tr_rating_roi_el.find_elements_by_xpath('.//div[contains(@class, "flexr_b")]')
+        if len(span_els) == 0:
+            at.tr_rating_roi = "unknown"
+        else:
+            at.tr_rating_roi = span_els[0].text.split("%")[0]
 
-            all_analysts.append(at)
+        rat_init_el = analyst_cells[5]
+        logger.info("Getting rat_init span...")
+        span_els = rat_init_el.find_elements_by_xpath('.//span[contains(@class, "colorblack")]')
+        if len(span_els) == 0:
+            at.rating_initiating = "unknown"
+        else:
+            at.rating_initiating = span_els[0].text
 
-    return all_analysts
+        dt_rat_el = analyst_cells[6]
+        time_els = dt_rat_el.find_elements_by_xpath('.//time')
+        if len(time_els) == 0:
+            at.dt_rating = "unknown"
+        else:
+            at.dt_rating = time_els[0].get_attribute("datetime")
+
+        logger.info(
+            f"{ndx}: {at.analyst_name}; {at.analyst_rel_url}; {at.rank_raw}; {at.org_name}; {at.target_price}; {at.rating}; {at.tr_rating_roi}; {at.rating_initiating}; {at.dt_rating}")
+
+        all_at.append(at)
+
+    return all_at
 
 
 @retry(tries=-1, delay=15, max_delay=60, backoff=1, jitter=1, logger=logger)
 def call_tip_ranks(driver, url: str, ticker: str):
     driver.get(url)
 
-    if driver.title.startswith("Page Not Found"):
+    if driver.title.startswith("Page Not Found") or driver.title == "":
         return None
 
     more_to_show = click_show_more(driver)
@@ -111,7 +153,9 @@ def call_tip_ranks(driver, url: str, ticker: str):
         more_to_show = click_show_more(driver)
         time.sleep(1)
 
-    return get_analyst_tips(driver, ticker=ticker)
+    time.sleep(8)
+
+    return find_all_data_on_page(driver, ticker=ticker)
 
 
 def get_stock_tips(tickers: List[str], driver: WebDriver) -> Dict[str, List[AnalystTip]]:
@@ -132,11 +176,14 @@ def get_stock_tips(tickers: List[str], driver: WebDriver) -> Dict[str, List[Anal
 def click_show_more(driver: WebDriver):
     more_to_show = True
     timeout = 1
-    rule_1 = '//button[text()="Show More Ratings"]'
-    condition = EC.presence_of_element_located((By.XPATH, rule_1))
+
+    rule_1 = '//button/span[text()="Show More Ratings"]'
     try:
-        show_mo_elem = WebDriverWait(driver, timeout).until(condition)
-        show_mo_elem.click()
+        logger.info("Getting show_more span 1...")
+        condition = EC.presence_of_element_located((By.XPATH, rule_1))
+        logger.info("Getting show_more span 2...")
+        WebDriverWait(driver, timeout).until(condition).click()
+        logger.info("Getting show_more span 3...")
     except TimeoutException as te:
         print(te)
         more_to_show = False
@@ -191,7 +238,8 @@ def scrape_tipranks(tickers: List[str], output_path: Path):
                 all_tips.append(at.__dict__)
 
         df = pd.DataFrame(all_tips)
-        df.to_parquet(output_path)
+        if output_path:
+            df.to_parquet(output_path)
 
     return stock_tips
 
